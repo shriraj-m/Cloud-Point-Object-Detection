@@ -1,0 +1,55 @@
+1. Dataset Exploration & Preprocessing
+o Have you downloaded the dataset?
+    Yes! we are using a subset of 3D Object Detection dataset from KITTI
+o What are the characteristics of the dataset (size, format, labels, etc.)?
+
+o What preprocessing steps are needed?
+
+o Do you need APIs for data manipulation?
+
+o Show us your dataset
+
+
+
+
+2. Learning Approach
+o Which deep learning technique will you use (CNN, RNN, Transformer, etc.)?
+    We will use CNNs.
+
+o Are you going to use a pre-train model ?, Will you be training the model from
+scratch?, are you fine tuning a model ?
+    We will most likely use a pre-trained model, however we want to atleast try and 
+    implement a model from scratch just for the experience.
+
+o Why did you choose this method over others?
+    Just cause, we want the experience in both areas.
+
+
+
+
+
+3. Proposed Model Architecture
+o Present an initial model diagram and explain its key components.
+
+o What modifications/customizations do you plan to implement?
+
+
+
+
+4. Implementation Plan & Timeline
+o Provide a structured plan for different stages of the project:
+▪ Dataset preparation
+
+▪ Model selection & training
+
+▪ Evaluation & performance metrics
+
+▪ Optimization & fine-tuning
+
+▪ Final testing & reporting
+
+
+
+5. Challenges & Questions
+o Identify possible challenges and any questions regarding the implementation
+process
