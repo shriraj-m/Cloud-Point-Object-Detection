@@ -11,8 +11,43 @@ def detect_2d_bounding_boxes(image_path):
     result = results[0]
 
     boxes = result.boxes.xywh
-    print(boxes)
-    return boxes
+    return boxes, result
+
+def calculate_iou(boxA, boxB):
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+
+    unionArea = boxAArea + boxBArea - interArea
+    return interArea / unionArea if unionArea > 0 else 0
+
+def match_boxes(pred_boxes, gt_boxes, iou_threshold=0.5):
+    matched_pairs = []  # Stores (pred_idx, gt_idx, IoU) for matched boxes
+    unmatched_preds = []  # Stores unmatched predictions (false positives)
+    unmatched_gts = set(range(len(gt_boxes)))  # Track unmatched ground truths
+
+    for pred_idx, pred in enumerate(pred_boxes):
+        best_iou = 0
+        best_gt_idx = -1
+
+        for gt_idx, gt in enumerate(gt_boxes):
+            iou = calculate_iou(pred, gt)  # Compute IoU
+            if iou > best_iou:
+                best_iou = iou
+                best_gt_idx = gt_idx
+
+        if best_iou >= iou_threshold and best_gt_idx in unmatched_gts:
+            matched_pairs.append((pred_idx, best_gt_idx, best_iou))
+            unmatched_gts.remove(best_gt_idx)  # Mark ground truth as matched
+        else:
+            unmatched_preds.append(pred_idx)  # No good match, it's a false positive
+
+    return matched_pairs, unmatched_preds, list(unmatched_gts)
 
 def calculate_corners(box):
     x, y, w, h = box.tolist()
@@ -75,12 +110,12 @@ def show_rois(image_path, rois_2d, rois):
     
     
     image = cv2.imread(image_path)
-    colormap = cv2.COLORMAP_HOT
+    colormap = cv2.COLORMAP_JET
 
     depth = features_3d[:, 2]
     depth_min = np.min(depth)
     depth_max = np.max(depth)
-    normalized_depth = 1 - (depth - depth_min) / (depth_max - depth_min)
+    normalized_depth = (depth - depth_min) / (depth_max - depth_min)
 
     depth_colored = cv2.applyColorMap((normalized_depth * 255).astype(np.uint8), colormap)
 
@@ -93,43 +128,102 @@ def show_rois(image_path, rois_2d, rois):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def display_bounding_boxes(image_path, boxes):
+def display_bounding_boxes(image_path, boxes, result):
     image = cv2.imread(image_path)
-    for box in boxes:
+    img_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    for i, box in enumerate(boxes):
+        x, y, w, h = box.tolist()
         u1, v1, u2, v2 = calculate_corners(box)
         u1, v1, u2, v2 = int(u1), int(v1), int(u2), int(v2)
-        cv2.rectangle(image, (u1, v1), (u2, v2), (0, 255, 0), 2)
-    cv2.imshow("Detected Objects", image)
+        conf = result.boxes.conf[i].item()
+        label = result.names[result.boxes.cls[i].item()]
+        cv2.rectangle(img_bgr, (u1, v1), (u2, v2), (0, 255, 0), 2)
+        label_text = f"{label} {conf:.2f}"  # Format label and confidence score
+        cv2.putText(img_bgr, label_text, (int(x - w / 2), int(y - h / 2) - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)  # Green text
+    cv2.imshow("Detected Objects", img_bgr)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def project_lidar_to_image(lidar_2d, image):
-    for point in lidar_2d:
+def project_lidar_to_image(lidar_2d, depth_map, image):
+
+    depth = depth_map
+    print(np.min(depth), np.max(depth))
+    depth_min = np.min(depth)
+    depth_max = np.max(depth)
+    normalized_depth = (depth - depth_min) / (depth_max - depth_min)
+    
+    depth_colored = cv2.applyColorMap((normalized_depth * 255).astype(np.uint8), cv2.COLORMAP_JET)
+
+    for idx, point in enumerate(lidar_2d):
         x, y = point
+        color = depth_colored[idx, 0, :].tolist()
         if 0 <= x < image.shape[1] and 0 <= y < image.shape[0]:
-            cv2.circle(image, (int(x), int(y)), 1, (0, 255, 0), -1)
+            cv2.circle(image, (int(x), int(y)), 1, tuple(color), -1)
     cv2.imshow("Lidar Overlay", image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+def rois_3d(rois):
+    feature = []
+    for roi in rois:
+        feature.extend(roi)
+    feature = np.array(feature)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(feature)
+    o3d.visualization.draw_geometries([pcd])
     
+
     
 
 def main():
-    image_path = "Data/training/image_2/000035.png"
-    boxes = detect_2d_bounding_boxes(image_path)
-    display_bounding_boxes(image_path, boxes)
-    point_cloud = np.fromfile('Data/training/lidar/dataset/training/000035.bin', dtype=np.float32).reshape(-1, 4)
-    calib_data = get_calibration('Data/training/calib/000035.txt')
+    x = 400
+    x = str(x).zfill(6)
+    image_path = f"Data/training/image_2/{x}.png"
+    boxes, result = detect_2d_bounding_boxes(image_path)
+    display_bounding_boxes(image_path, boxes, result)
+    point_cloud = np.fromfile(f'Data/training/lidar/dataset/training/{x}.bin', dtype=np.float32).reshape(-1, 4)
+    calib_data = get_calibration(f'Data/training/calib/{x}.txt')
     point_cloud = calibrate_point_cloud(point_cloud, calib_data)
+    point_cloud = point_cloud[point_cloud[:, 2] > 0]
     point_2d = get_point_cloud_2d(point_cloud, calib_data)
     rois, rois_2d = extract_roi_from_point_cloud(point_2d, point_cloud, boxes)
-    project_lidar_to_image(point_2d, cv2.imread(image_path))
+    depth_map = point_cloud[:, 2]
+    project_lidar_to_image(point_2d, depth_map, cv2.imread(image_path))
     show_rois(image_path, rois_2d, rois)
 
+    rois_3d(rois)
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud[:, :3])
     o3d.visualization.draw_geometries([pcd])
 
+    for i in range(500, 700):
+        img_testing_path = f"Data/training/images/val/{str(i).zfill(6)}.png"
+        label_testing_path = f"Data/training/labels/val/{str(i).zfill(6)}.txt"
+        boxes, results = detect_2d_bounding_boxes(img_testing_path)
+        real_boxes = []
+        matched_pairs = []
+        unmatched_preds = []
+        unmatched_gts = []
+        image = cv2.imread(img_testing_path)
+        with open(label_testing_path, "r") as f:
+            for line in f.readlines():
+                parts = line.strip().split()
+                x_center, y_center, width, height = map(float, parts)
+                x_min = int((x_center - width / 2) * image.shape[1])
+                y_min = int((y_center - height / 2) * image.shape[0])
+                x_max = int((x_center + width / 2) * image.shape[1])
+                y_max = int((y_center + height / 2) * image.shape[0])
+                real_boxes.append([x_min, y_min, x_max, y_max])
+        tmp_matched_pairs, tmp_unmatched_preds, tmp_unmatched_gts = match_boxes(boxes, real_boxes)
+
+        matched_pairs.extend(tmp_matched_pairs)
+        unmatched_preds.extend(tmp_unmatched_preds)
+        unmatched_gts.extend(tmp_unmatched_gts)
+
+    precision = len(matched_pairs) / (len(matched_pairs) + len(unmatched_preds))
+    recall = len(matched_pairs) / (len(matched_pairs) + len(unmatched_gts))
+    print(f"Precision: {precision:.2f}, Recall: {recall:.2f}")
 
 
 main()
