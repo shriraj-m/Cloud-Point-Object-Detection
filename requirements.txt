@@ -1,6 +1,5 @@
+ultralytics
 torch
-torchvision
-open3d
+opencv-python
 numpy
-matplotlib
-scipy
+open3d
